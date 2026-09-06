@@ -1,3 +1,15 @@
+gpac (26.08-DEV+spincast1) bookworm; urgency=medium
+
+  * Spincast production build based on current GPAC master.
+  * Handle SCTE-35 unspecified splice_command_length 0xFFF.
+  * Normalize SCTE-35 timing against HLS presentationTimeOffset.
+  * Schedule passthrough SCTE-35 cues at the first suitable RAP.
+  * Associate HLS SCTE-35 cues with break segment boundaries.
+  * Add SCTE-35-driven video RAP segment boundaries.
+  * Reset SCTE-35 serialization state on dynamic HLS playlist rewrites.
+
+ -- Daniel Thompson danht@junglegenius.com  Sun, 06 Sep 2026 11:51:00 -0400
+
 gpac (26.08-DEV) stable; urgency=low
 
   * Initial release - see https://github.com/gpac/gpac/releases for more details
