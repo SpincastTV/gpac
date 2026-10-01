@@ -1,4 +1,4 @@
-gpac (26.08-DEV+spincast1) bookworm; urgency=medium
+gpac (26.08-DEV+spincast2) bookworm; urgency=medium
 
   * Spincast production build based on current GPAC master.
   * Handle SCTE-35 unspecified splice_command_length 0xFFF.
