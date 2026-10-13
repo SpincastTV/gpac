@@ -1,4 +1,4 @@
-gpac (26.08-DEV+spincast3) bookworm; urgency=medium
+gpac (26.08-DEV+spincast4) bookworm; urgency=medium
 
   * Spincast production build based on current GPAC master.
 
@@ -18,6 +18,7 @@ gpac (26.08-DEV+spincast3) bookworm; urgency=medium
   * MPD: retain opaque per-segment event boundary associations
   * HLS: write SCTE-35 cues from explicit segment event
   * Dasher: associate SCTE-35 events with rendition segment
+  * spincast-production-align-PR01-PR03-32e1d4ac
 
  -- Daniel Thompson danht@junglegenius.com  Tue, 13 Oct 2026 10:35:00 -0400
 

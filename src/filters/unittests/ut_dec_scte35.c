@@ -39,6 +39,15 @@ static u8 scte35_payload[] = {
     0x0a, 0x00, 0x08, 0x43, 0x55, 0x45, 0x49, 0x00,
 };
 
+/* splice_null() derived from the real mpegwithscte35.ts heartbeat section.
+ * The command length is made explicit (0) so this test is independent of the
+ * separate splice_command_length=0xFFF fix. */
+static u8 scte35_null_payload[] = {
+    0xfc, 0x30, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x00,
+    0x4f, 0x25, 0x33, 0x96,
+};
+
 #define SCTE35_DTS 59583ULL
 #define SCTE35_DUR 36637U
 #define SCTE35_LAST_EVENT_ID 1342177266U
@@ -181,23 +190,41 @@ unittest(scte35dec_splice_point_with_idr)
 	SCTE35DecCtx ctx = {0};
 	assert_equal(scte35dec_initialize_internal(&ctx), GF_OK, "%d");
 	ctx.mode = PASSTHRU;
-	u64 dts = 0;
 
-	SEND_EVENT();
+	/* splice_null() is informational heartbeat data, not a cue boundary. */
+	scte35dec_update_passthrough_cue(&ctx, scte35_null_payload, sizeof(scte35_null_payload));
+	assert_false(ctx.passthru_splice_pending);
+
+	/* The splice_insert() requests a random-access boundary at SCTE35_DTS. */
+	scte35dec_update_passthrough_cue(&ctx, scte35_payload, sizeof(scte35_payload));
+	assert_true(ctx.passthru_splice_pending);
+	assert_equal(ctx.passthru_splice_cts, (u64) SCTE35_DTS, LLU);
 
 	u8 *packet_data = NULL;
 	GF_FilterPacket *pck = pck_new_alloc(NULL, 1, &packet_data);
 	assert_true(pck != NULL);
+	gf_filter_pck_set_duration(pck, 3600); // 25 fps in a 90 kHz timescale
 
-	/* Do not consume the cue on a predictive frame. The usable splice point is
-	 * the first random-access packet at or after the signaled splice time. */
+	/* Do not consume the cue on a predictive frame at the splice timestamp. */
 	gf_filter_pck_set_cts(pck, SCTE35_DTS);
 	gf_filter_pck_set_sap(pck, GF_FILTER_SAP_NONE);
 	assert_false(scte35dec_is_splice_point(&ctx, pck));
+	assert_true(ctx.passthru_splice_pending);
 
-	gf_filter_pck_set_cts(pck, SCTE35_DTS + 1800);
+	/* The real interlaced sample places the following usable RAP one field
+	 * (about 20 ms) after the SCTE timestamp. One video packet is 40 ms, so the
+	 * RAP remains inside the packet-duration tolerance. */
+	gf_filter_pck_set_cts(pck, SCTE35_DTS + 1798);
 	gf_filter_pck_set_sap(pck, GF_FILTER_SAP_1);
 	assert_true(scte35dec_is_splice_point(&ctx, pck));
+	assert_false(ctx.passthru_splice_pending);
+
+	/* A random-access packet later than one packet duration is not silently
+	 * treated as the splice point. */
+	scte35dec_update_passthrough_cue(&ctx, scte35_payload, sizeof(scte35_payload));
+	gf_filter_pck_set_cts(pck, SCTE35_DTS + 3601);
+	assert_false(scte35dec_is_splice_point(&ctx, pck));
+	assert_false(ctx.passthru_splice_pending);
 
 	if (!pck->filter_owns_mem) gf_free(pck->data);
 	gf_free(pck);
@@ -210,7 +237,19 @@ unittest(scte35dec_splice_point_with_idr)
 
 unittest(scte35dec_unspecified_splice_command_length)
 {
-	/* Broadcast splice_insert using splice_command_length=0xFFF. */
+	/*
+	 * Real broadcast SCTE-35 splice_info_section captured from mpegwithscte35.ts.
+	 * Relevant decoded fields:
+	 *   tier                  = 0xFFF
+	 *   splice_command_length = 0xFFF (unspecified)
+	 *   splice_command_type   = 0x05  (splice_insert)
+	 *   splice_event_id       = 662
+	 *   splice_time           = 8076794552 (90 kHz)
+	 *   break_duration        = 21780000 (242 s at 90 kHz)
+	 *
+	 * The regression verifies that 0xFFF is treated as an unspecified command
+	 * length rather than a literal 4095-byte payload length.
+	 */
 	static u8 payload[] = {
 		0xfc, 0x30, 0x2f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0xff, 0xff, 0xff, 0x05, 0x00, 0x00, 0x02, 0x96, 0x7f, 0xef,
