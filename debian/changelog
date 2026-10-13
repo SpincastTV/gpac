@@ -1,14 +1,25 @@
-gpac (26.08-DEV+spincast2) bookworm; urgency=medium
+gpac (26.08-DEV+spincast3) bookworm; urgency=medium
 
   * Spincast production build based on current GPAC master.
+
   * Handle SCTE-35 unspecified splice_command_length 0xFFF.
   * Normalize SCTE-35 timing against HLS presentationTimeOffset.
   * Schedule passthrough SCTE-35 cues at the first suitable RAP.
   * Associate HLS SCTE-35 cues with break segment boundaries.
   * Add SCTE-35-driven video RAP segment boundaries.
   * Reset SCTE-35 serialization state on dynamic HLS playlist rewrites.
+  * scte35-ingress-logging
+  * Fix jsfilter-lsint-width
+  * Fix resampler-passthrough-timescale
+  * Update assertion fixture segment start
+  * Per-video event scheduling
+  * Opt-in shared A/V segment-cut schedule
+  * Fix HLS target duration
+  * MPD: retain opaque per-segment event boundary associations
+  * HLS: write SCTE-35 cues from explicit segment event
+  * Dasher: associate SCTE-35 events with rendition segment
 
- -- Daniel Thompson danht@junglegenius.com  Sun, 06 Sep 2026 11:51:00 -0400
+ -- Daniel Thompson danht@junglegenius.com  Tue, 13 Oct 2026 10:35:00 -0400
 
 gpac (26.08-DEV) stable; urgency=low
 
