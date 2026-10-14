@@ -4432,7 +4432,22 @@ static void hls_insert_scte35_associations(FILE *out, u64 ast, const GF_MPD_Peri
 	}
 }
 
-static void hls_insert_scte35_info(FILE *out, u64 ast, GF_MPD_Period *period, GF_MPD_AdaptationSet *adaptation_set, GF_MPD_Representation *representation, GF_DASH_SegmentContext *sctx)
+/* For a finite HLS playlist, never start a legacy replacement cue unless
+ * an actual subsequent segment can carry its CUE-IN. A DATERANGE can still
+ * report an SCTE event that is too short to have a replaceable segment. */
+static Bool hls_scte35_has_return_boundary(const GF_MPD_Representation *rep, u64 event_end)
+{
+	u32 i = 0;
+	GF_DASH_SegmentContext *next;
+	if (!rep->state_seg_list) return GF_FALSE;
+	while ((next = gf_list_enum(rep->state_seg_list, &i))) {
+		if (next->filename && next->dur && next->time >= event_end)
+			return GF_TRUE;
+	}
+	return GF_FALSE;
+}
+
+static void hls_insert_scte35_info(FILE *out, u64 ast, GF_MPD_Period *period, GF_MPD_AdaptationSet *adaptation_set, GF_MPD_Representation *representation, GF_DASH_SegmentContext *sctx, Bool final_playlist)
 {
 	u64 segment_duration = 0;
 	u64 presentation_time_offset = 0;
@@ -4461,14 +4476,19 @@ static void hls_insert_scte35_info(FILE *out, u64 ast, GF_MPD_Period *period, GF
 			event_time_in_representation_timescale = gf_timestamp_rescale(event_time, es->timescale, representation->timescale);
 			event_duration_in_representation_timescale = gf_timestamp_rescale(ese->duration, es->timescale, representation->timescale);
 
-			/* HLS cue tags describe segment boundaries. If an SCTE event falls
-			 * inside a segment, associate CUE-OUT with the first segment that
-			 * starts at or after the splice point rather than with the segment
-			 * that started before it. */
-			if (ese->state == 0
-				&& event_time_in_representation_timescale <= sctx->time
-				&& sctx->time < event_time_in_representation_timescale + event_duration_in_representation_timescale) {
-				gf_fprintf(out, "#EXT-X-DATERANGE:ID=\"%d-%04d\",", ese->id, ese->state);
+			u64 event_end = event_time_in_representation_timescale + event_duration_in_representation_timescale;
+			GF_DASH_SegmentContext *first = representation->state_seg_list
+				? gf_list_get(representation->state_seg_list, representation->tsb_first_entry) : NULL;
+
+			/* Preserve the SCTE event in the segment spanning its original splice
+			 * time, even when no media boundary can accommodate ad replacement.
+			 * For a sliding live window that starts during a break, retain its
+			 * DATERANGE on the first retained segment. */
+			if ((sctx->time <= event_time_in_representation_timescale
+					&& event_time_in_representation_timescale - sctx->time < sctx->dur)
+				|| (sctx == first && event_time_in_representation_timescale < sctx->time
+					&& sctx->time < event_end)) {
+				gf_fprintf(out, "#EXT-X-DATERANGE:ID=\"%d-%04d\",", ese->id, 0);
 				gf_mpd_print_date(out, "START-DATE", ast + (event_time * 1000) / es->timescale);
 				gf_fprintf(out, ",PLANNED-DURATION=%g", ese->duration/(Double)es->timescale);
 				if (ese->message) {
@@ -4477,7 +4497,15 @@ static void hls_insert_scte35_info(FILE *out, u64 ast, GF_MPD_Period *period, GF
 						gf_fprintf(out, "%02X", ese->message[k]);
 				}
 				gf_fprintf(out, "\n");
+			}
 
+			/* Legacy CUE-OUT is a media-replacement boundary, not an event
+			 * record: never place it ahead of the actual splice point. A final
+			 * VOD playlist must also have a real boundary for the return cue. */
+			if (ese->state == 0
+				&& event_time_in_representation_timescale <= sctx->time
+				&& sctx->time < event_end
+				&& (!final_playlist || hls_scte35_has_return_boundary(representation, event_end))) {
 				gf_fprintf(out, "#EXT-X-CUE-OUT:%g\n", ese->duration/(Double)es->timescale);
 				ese->state = 1;
 			}
@@ -4729,7 +4757,8 @@ static GF_Err gf_mpd_write_m3u8_playlist(const GF_MPD *mpd, const GF_MPD_Period 
 			if (explicit_segment_events)
 				hls_insert_scte35_associations(out, mpd->availabilityStartTime, period, rep, sctx);
 			else
-				hls_insert_scte35_info(out, mpd->availabilityStartTime, period, as, rep, sctx);
+				hls_insert_scte35_info(out, mpd->availabilityStartTime, period, as, rep, sctx,
+				(mpd->type != GF_MPD_TYPE_DYNAMIC) && is_last);
 
 			//signal discontinuity if needed
 			if (sctx && sctx->is_discontinuity)
